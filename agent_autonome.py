@@ -107,7 +107,7 @@ class ContentEngine:
         self.logger.info("✍️ Envoi de la demande à l'IA...")
         try:
             response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
+                url="https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={"model": "deepseek/deepseek-chat", "messages": [{"role": "user", "content": prompt}]},
                 timeout=180
