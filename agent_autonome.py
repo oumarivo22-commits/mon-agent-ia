@@ -109,7 +109,7 @@ class ContentEngine:
             response = requests.post(
                 url="https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={"model": "deepseek/deepseek-chat", "messages": [{"role": "user", "content": prompt}]},
+                json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]},
                 timeout=180
             )
             response.raise_for_status()
