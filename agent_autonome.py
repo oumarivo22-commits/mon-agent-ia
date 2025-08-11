@@ -46,7 +46,8 @@ class TrendRadar:
 
     def _init_google_trends(self) -> Optional[TrendReq]:
         if not PYTRENDS_AVAILABLE: return None
-        try: return TrendReq(hl='fr-FR', tz=60)
+        try:
+            return TrendReq(hl=os.getenv('GTRENDS_HL', 'fr-FR'), tz=int(os.getenv('GTRENDS_TZ', '60')))
         except Exception as e:
             self.logger.error(f"❌ Erreur connexion Google Trends: {e}")
             return None
@@ -68,15 +69,18 @@ class TrendRadar:
     
     def detect_trends(self) -> List[Dict]:
         trends = []
+        google_trends_pn = os.getenv('GTRENDS_PN', 'france')
+        reddit_subreddit = os.getenv('REDDIT_SUBREDDIT', 'france+technologie')
+
         if self.trends_client:
             try:
-                df = self.trends_client.trending_searches(pn='france')
+                df = self.trends_client.trending_searches(pn=google_trends_pn)
                 for i, trend in enumerate(df[0].head(5)):
                     trends.append({"title": trend, "source": "Google", "score": 100 - i*10})
             except Exception: pass
         if self.reddit_client:
             try:
-                for post in self.reddit_client.subreddit("france+technologie").hot(limit=5):
+                for post in self.reddit_client.subreddit(reddit_subreddit).hot(limit=5):
                     if not post.stickied:
                         trends.append({"title": post.title, "source": "Reddit", "score": post.score / 5})
             except Exception: pass
@@ -101,15 +105,16 @@ class ContentEngine:
 
     def generate_content(self, prompt: str) -> Optional[str]:
         api_key = os.getenv('DEEPSEEK_API_KEY')
+        ai_model = os.getenv('AI_MODEL', 'deepseek/deepseek-chat')
         if not api_key:
             self.logger.error("❌ Clé API DEEPSEEK_API_KEY non trouvée.")
             return None
-        self.logger.info("✍️ Envoi de la demande à l'IA...")
+        self.logger.info(f"✍️ Envoi de la demande à l'IA (Modèle: {ai_model})...")
         try:
             response = requests.post(
-                url="https://api.deepseek.com/v1/chat/completions",
+                url="https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]},
+                json={"model": ai_model, "messages": [{"role": "user", "content": prompt}]},
                 timeout=180
             )
             response.raise_for_status()
@@ -200,6 +205,6 @@ if __name__ == "__main__":
     except ImportError:
         print("Outil 'python-dotenv' non trouvé.")
     
-    agent = AutonomousAgent(cycle_hours=12)
+    cycle_hours = int(os.getenv('CYCLE_HOURS', '12'))
+    agent = AutonomousAgent(cycle_hours=cycle_hours)
     agent.start()
-
