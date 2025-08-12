@@ -12,7 +12,9 @@ import time
 import logging
 import re
 import requests
+import threading
 from typing import List, Dict, Optional
+from flask import Flask
 
 # --- Configuration du Logging ---
 logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'), format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -46,7 +48,8 @@ class TrendRadar:
 
     def _init_google_trends(self) -> Optional[TrendReq]:
         if not PYTRENDS_AVAILABLE: return None
-        try: return TrendReq(hl='fr-FR', tz=60)
+        try:
+            return TrendReq(hl=os.getenv('GTRENDS_HL', 'fr-FR'), tz=int(os.getenv('GTRENDS_TZ', '60')))
         except Exception as e:
             self.logger.error(f"❌ Erreur connexion Google Trends: {e}")
             return None
@@ -68,15 +71,18 @@ class TrendRadar:
     
     def detect_trends(self) -> List[Dict]:
         trends = []
+        google_trends_pn = os.getenv('GTRENDS_PN', 'france')
+        reddit_subreddit = os.getenv('REDDIT_SUBREDDIT', 'france+technologie')
+
         if self.trends_client:
             try:
-                df = self.trends_client.trending_searches(pn='france')
+                df = self.trends_client.trending_searches(pn=google_trends_pn)
                 for i, trend in enumerate(df[0].head(5)):
                     trends.append({"title": trend, "source": "Google", "score": 100 - i*10})
             except Exception: pass
         if self.reddit_client:
             try:
-                for post in self.reddit_client.subreddit("france+technologie").hot(limit=5):
+                for post in self.reddit_client.subreddit(reddit_subreddit).hot(limit=5):
                     if not post.stickied:
                         trends.append({"title": post.title, "source": "Reddit", "score": post.score / 5})
             except Exception: pass
@@ -101,15 +107,16 @@ class ContentEngine:
 
     def generate_content(self, prompt: str) -> Optional[str]:
         api_key = os.getenv('DEEPSEEK_API_KEY')
+        ai_model = os.getenv('AI_MODEL', 'deepseek/deepseek-chat')
         if not api_key:
             self.logger.error("❌ Clé API DEEPSEEK_API_KEY non trouvée.")
             return None
-        self.logger.info("✍️ Envoi de la demande à l'IA...")
+        self.logger.info(f"✍️ Envoi de la demande à l'IA (Modèle: {ai_model})...")
         try:
             response = requests.post(
-                url="https://api.deepseek.com/v1/chat/completions",
+                url="https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]},
+                json={"model": ai_model, "messages": [{"role": "user", "content": prompt}]},
                 timeout=180
             )
             response.raise_for_status()
@@ -187,19 +194,40 @@ class AutonomousAgent:
             time.sleep(self.cycle_interval_seconds)
 
 # ===================================================================
-# POINT DE DÉPART DU PROGRAMME
+# SECTION SERVEUR WEB POUR RENDER
 # ===================================================================
-if __name__ == "__main__":
-    print("Démarrage de l'Agent Autonome V1.5 (Publication WordPress)")
+app = Flask(__name__)
+
+@app.route('/')
+def hello_world():
+    return 'L\'agent est en cours d\'exécution en arrière-plan.'
+
+def run_agent():
+    """Charge l'environnement et démarre l'agent."""
     try:
         from dotenv import load_dotenv
         if load_dotenv():
-            print("Fichier de configuration .env chargé.")
+            logger.info("Fichier de configuration .env chargé.")
         else:
-            print("Fichier .env non trouvé.")
+            logger.info("Fichier .env non trouvé, utilisation des variables d'environnement système.")
     except ImportError:
-        print("Outil 'python-dotenv' non trouvé.")
+        logger.warning("Outil 'python-dotenv' non trouvé.")
     
-    agent = AutonomousAgent(cycle_hours=12)
+    cycle_hours = int(os.getenv('CYCLE_HOURS', '12'))
+    agent = AutonomousAgent(cycle_hours=cycle_hours)
     agent.start()
 
+# ===================================================================
+# POINT DE DÉPART DU PROGRAMME
+# ===================================================================
+if __name__ == "__main__":
+    logger.info("Démarrage du serveur web et de l'agent en arrière-plan.")
+
+    # Démarrer l'agent dans un thread séparé
+    agent_thread = threading.Thread(target=run_agent, daemon=True)
+    agent_thread.start()
+
+    # Démarrer le serveur Flask pour répondre aux contrôles de santé de Render
+    # Render définit la variable d'environnement PORT.
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
