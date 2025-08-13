@@ -1,2 +1,1 @@
-web: python agent_autonome.py
-
+web: gunicorn agent_autonome:app
